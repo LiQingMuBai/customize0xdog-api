@@ -15,11 +15,12 @@ import (
 )
 
 func TestHealth(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/health", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
+	logHTTPResponse(t, rr)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -44,11 +45,12 @@ func TestHealth(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/healthz", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
+	logHTTPResponse(t, rr)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -67,9 +69,10 @@ func TestProxyBalance(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"message":"","data":{"balance":1}}`))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/teldog/balance", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/api/teldog/balance", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
+	logHTTPResponse(t, rr)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -80,9 +83,9 @@ func TestProxyBalance(t *testing.T) {
 }
 
 func TestOperatorsRequiresCountryISO(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/teldog/operators", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/api/teldog/operators", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
 
@@ -103,9 +106,10 @@ func TestProductsForwardsQuery(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"message":"","data":[]}`))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/teldog/products?country_iso=US&operator_code=att", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/api/teldog/products?country_iso=US&operator_code=att", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
+	logHTTPResponse(t, rr)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -113,9 +117,9 @@ func TestProductsForwardsQuery(t *testing.T) {
 }
 
 func TestCreateOrderRejectsEmptyBody(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-	req := httptest.NewRequest(http.MethodPost, "http://example.com/api/teldog/orders", strings.NewReader("   "))
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:9999/api/teldog/orders", strings.NewReader("   "))
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
 
@@ -145,9 +149,10 @@ func TestCreateOrderForwardsBody(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"message":"","data":{"status":"processing"}}`))
 	}))
 
-	req := httptest.NewRequest(http.MethodPost, "http://example.com/api/teldog/orders", strings.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:9999/api/teldog/orders", strings.NewReader(payload))
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
+	logHTTPResponse(t, rr)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -162,9 +167,10 @@ func TestGetOrderByAgentOrderID(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"message":"","data":{"status":"success"}}`))
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/teldog/orders/AGT-1001", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/api/teldog/orders/AGT-1001", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
+	logHTTPResponse(t, rr)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -172,9 +178,9 @@ func TestGetOrderByAgentOrderID(t *testing.T) {
 }
 
 func TestGetOrderRejectsInvalidID(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/teldog/orders/a/b", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/api/teldog/orders/a/b", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
 
@@ -192,7 +198,7 @@ func TestUpstreamConnectionFailureReturnsBadGateway(t *testing.T) {
 		t.Fatalf("new server: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/teldog/balance", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/api/teldog/balance", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
 
@@ -200,18 +206,19 @@ func TestUpstreamConnectionFailureReturnsBadGateway(t *testing.T) {
 }
 
 func TestCallbackSignature(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 	ts := "1773741600"
 	body := []byte(`{"agent_order_id":"A","status":"success"}`)
 	sig := callbackSignatureHex("k", ts, body)
 
-	req := httptest.NewRequest(http.MethodPost, "http://example.com/api/teldog/callback", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:9999/api/teldog/callback", bytes.NewReader(body))
 	req.Header.Set("X-Callback-Timestamp", ts)
 	req.Header.Set("X-Callback-Signature", sig)
 
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
+	logHTTPResponse(t, rr)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -219,9 +226,9 @@ func TestCallbackSignature(t *testing.T) {
 }
 
 func TestCallbackSignatureInvalid(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-	req := httptest.NewRequest(http.MethodPost, "http://example.com/api/teldog/callback", strings.NewReader(`{"agent_order_id":"A"}`))
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:9999/api/teldog/callback", strings.NewReader(`{"agent_order_id":"A"}`))
 	req.Header.Set("X-Callback-Timestamp", "1773741600")
 	req.Header.Set("X-Callback-Signature", "deadbeef")
 
@@ -232,9 +239,9 @@ func TestCallbackSignatureInvalid(t *testing.T) {
 }
 
 func TestCallbackSignatureMissingHeaders(t *testing.T) {
-	s := newTestServer(t, "https://example.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-	req := httptest.NewRequest(http.MethodPost, "http://example.com/api/teldog/callback", strings.NewReader(`{"agent_order_id":"A"}`))
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:9999/api/teldog/callback", strings.NewReader(`{"agent_order_id":"A"}`))
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
 
@@ -278,6 +285,7 @@ func newTestServer(t *testing.T, baseURL string, handler http.Handler) *Server {
 
 func assertAPIError(t *testing.T, rr *httptest.ResponseRecorder, wantStatus int, wantCode int, wantMessage string) {
 	t.Helper()
+	logHTTPResponse(t, rr)
 
 	if rr.Code != wantStatus {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -293,4 +301,27 @@ func assertAPIError(t *testing.T, rr *httptest.ResponseRecorder, wantStatus int,
 	if body.Message != wantMessage {
 		t.Fatalf("message=%q", body.Message)
 	}
+}
+
+func TestUIOrderPage(t *testing.T) {
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/ui/order", nil)
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("content-type=%q", got)
+	}
+	if !strings.Contains(rr.Body.String(), "下单测试") {
+		t.Fatalf("unexpected body")
+	}
+}
+
+func logHTTPResponse(t *testing.T, rr *httptest.ResponseRecorder) {
+	t.Helper()
+	t.Logf("response status=%d body=%s", rr.Code, strings.TrimSpace(rr.Body.String()))
 }

@@ -38,6 +38,7 @@ func TestClientGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
+	logClientResponse(t, resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d", resp.StatusCode)
@@ -77,6 +78,7 @@ func TestClientPostJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
+	logClientResponse(t, resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d", resp.StatusCode)
@@ -100,6 +102,7 @@ func TestClientReturnsResponseOnUpstreamServerError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+	logClientResponse(t, resp)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
@@ -112,4 +115,9 @@ func TestNewClientRejectsInvalidBaseURL(t *testing.T) {
 	if _, err := NewClient("://bad-url", "k", time.Second); err == nil {
 		t.Fatal("expected error")
 	}
+}
+
+func logClientResponse(t *testing.T, resp Response) {
+	t.Helper()
+	t.Logf("client response status=%d body=%s", resp.StatusCode, string(resp.Body))
 }
