@@ -42,6 +42,8 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+	s.mux.HandleFunc("GET /ui/login", s.handleUILoginPage)
+	s.mux.HandleFunc("POST /ui/login", s.handleUILoginSubmit)
 	s.mux.HandleFunc("GET /ui/order", s.handleOrderTestPage)
 
 	s.mux.HandleFunc("GET /api/teldog/balance", s.handleProxyGet("/openapi/agent/balance", nil))

@@ -276,6 +276,8 @@ func newTestServer(t *testing.T, baseURL string, handler http.Handler) *Server {
 		TeldogBaseURL: baseURL,
 		TeldogAPIKey:  "k",
 		HTTPTimeout:   time.Second,
+		UIUsername:    "u",
+		UIPassword:    "p",
 	})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
@@ -310,15 +312,105 @@ func TestUIOrderPage(t *testing.T) {
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
 
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Location"); got != "/ui/login" {
+		t.Fatalf("location=%q", got)
+	}
+}
+
+func TestUILoginPage(t *testing.T) {
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9999/ui/login", nil)
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Fatalf("content-type=%q", got)
 	}
-	if !strings.Contains(rr.Body.String(), "下单测试") {
+	if !strings.Contains(rr.Body.String(), "下单测试 — 登录") {
 		t.Fatalf("unexpected body")
 	}
+	if !strings.Contains(rr.Body.String(), "captcha_code") {
+		t.Fatalf("captcha field missing")
+	}
+}
+
+func TestUILoginSubmitOK(t *testing.T) {
+	s := newTestServer(t, "http://localhost:9999", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	rrLogin := httptest.NewRecorder()
+	reqLogin := httptest.NewRequest(http.MethodGet, "http://localhost:9999/ui/login", nil)
+	s.Handler().ServeHTTP(rrLogin, reqLogin)
+	if rrLogin.Code != http.StatusOK {
+		t.Fatalf("login status=%d body=%s", rrLogin.Code, rrLogin.Body.String())
+	}
+
+	html := rrLogin.Body.String()
+	code := extractInputValue(html, `name="captcha_code" value="`)
+	token := extractInputValue(html, `name="captcha_token" value="`)
+	if code == "" || token == "" {
+		t.Fatalf("failed to extract captcha")
+	}
+
+	form := url.Values{}
+	form.Set("username", "u")
+	form.Set("password", "p")
+	form.Set("captcha", code)
+	form.Set("captcha_code", code)
+	form.Set("captcha_token", token)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:9999/ui/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	s.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Location"); got != "/ui/order" {
+		t.Fatalf("location=%q", got)
+	}
+	setCookie := rr.Header().Get("Set-Cookie")
+	if !strings.Contains(setCookie, "ui_session=") {
+		t.Fatalf("missing session cookie")
+	}
+
+	cookies := rr.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("no cookies")
+	}
+
+	rrOrder := httptest.NewRecorder()
+	reqOrder := httptest.NewRequest(http.MethodGet, "http://localhost:9999/ui/order", nil)
+	for _, c := range cookies {
+		reqOrder.AddCookie(c)
+	}
+	s.Handler().ServeHTTP(rrOrder, reqOrder)
+
+	if rrOrder.Code != http.StatusOK {
+		t.Fatalf("order status=%d body=%s", rrOrder.Code, rrOrder.Body.String())
+	}
+	if !strings.Contains(rrOrder.Body.String(), "下单测试") {
+		t.Fatalf("unexpected order body")
+	}
+}
+
+func extractInputValue(html string, prefix string) string {
+	_, after, ok := strings.Cut(html, prefix)
+	if !ok {
+		return ""
+	}
+	v, _, ok := strings.Cut(after, `"`)
+	if !ok {
+		return ""
+	}
+	return v
 }
 
 func logHTTPResponse(t *testing.T, rr *httptest.ResponseRecorder) {

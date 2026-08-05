@@ -14,6 +14,8 @@ type Config struct {
 	TeldogBaseURL string
 	TeldogAPIKey  string
 	HTTPTimeout   time.Duration
+	UIUsername    string
+	UIPassword    string
 }
 
 func Load() (Config, error) {
@@ -26,6 +28,8 @@ func Load() (Config, error) {
 
 	cfg.TeldogBaseURL = strings.TrimSpace(os.Getenv("TELDOG_BASE_URL"))
 	cfg.TeldogAPIKey = strings.TrimSpace(os.Getenv("TELDOG_API_KEY"))
+	cfg.UIUsername = strings.TrimSpace(os.Getenv("UI_USERNAME"))
+	cfg.UIPassword = strings.TrimSpace(os.Getenv("UI_PASSWORD"))
 
 	if cfg.TeldogBaseURL == "" {
 		return Config{}, errors.New("TELDOG_BASE_URL is required")

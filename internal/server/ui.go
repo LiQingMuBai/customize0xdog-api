@@ -1,10 +1,259 @@
 package server
 
-import "net/http"
+import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
 
 func (s *Server) handleOrderTestPage(w http.ResponseWriter, r *http.Request) {
+	if !s.uiAuthEnabled() {
+		http.Error(w, "UI_USERNAME 和 UI_PASSWORD 未配置", http.StatusServiceUnavailable)
+		return
+	}
+	if !s.uiIsAuthed(r) {
+		http.Redirect(w, r, "/ui/login", http.StatusFound)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(orderTestHTML))
+}
+
+func (s *Server) handleUILoginPage(w http.ResponseWriter, r *http.Request) {
+	if !s.uiAuthEnabled() {
+		http.Error(w, "UI_USERNAME 和 UI_PASSWORD 未配置", http.StatusServiceUnavailable)
+		return
+	}
+	s.renderUILoginPage(w, "")
+}
+
+func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
+	if !s.uiAuthEnabled() {
+		http.Error(w, "UI_USERNAME 和 UI_PASSWORD 未配置", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		s.renderUILoginPage(w, "表单解析失败")
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := strings.TrimSpace(r.FormValue("password"))
+	captchaInput := strings.TrimSpace(r.FormValue("captcha"))
+	captchaCode := strings.TrimSpace(r.FormValue("captcha_code"))
+	captchaToken := strings.TrimSpace(r.FormValue("captcha_token"))
+
+	if username == "" || password == "" || captchaInput == "" {
+		s.renderUILoginPage(w, "请输入账号、密码、验证码")
+		return
+	}
+
+	if err := s.uiVerifyCaptcha(captchaToken, captchaCode, captchaInput); err != nil {
+		s.renderUILoginPage(w, "验证码错误")
+		return
+	}
+
+	if username != s.cfg.UIUsername || password != s.cfg.UIPassword {
+		s.renderUILoginPage(w, "账号或密码错误")
+		return
+	}
+
+	s.uiSetSessionCookie(w, username)
+	http.Redirect(w, r, "/ui/order", http.StatusFound)
+}
+
+func (s *Server) uiAuthEnabled() bool {
+	return strings.TrimSpace(s.cfg.UIUsername) != "" && strings.TrimSpace(s.cfg.UIPassword) != ""
+}
+
+func (s *Server) uiSecret() []byte {
+	return []byte(s.cfg.TeldogAPIKey + ":" + s.cfg.UIUsername + ":" + s.cfg.UIPassword)
+}
+
+func (s *Server) uiIsAuthed(r *http.Request) bool {
+	c, err := r.Cookie("ui_session")
+	if err != nil {
+		return false
+	}
+
+	parts := strings.SplitN(strings.TrimSpace(c.Value), ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+
+	ts, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return false
+	}
+	if time.Since(time.Unix(ts, 0)) > 24*time.Hour {
+		return false
+	}
+
+	expect := uiHMACHex(s.uiSecret(), fmt.Sprintf("%s.%d", s.cfg.UIUsername, ts))
+	return secureEqualHex(parts[1], expect)
+}
+
+func (s *Server) uiSetSessionCookie(w http.ResponseWriter, username string) {
+	ts := time.Now().Unix()
+	sig := uiHMACHex(s.uiSecret(), fmt.Sprintf("%s.%d", username, ts))
+	val := fmt.Sprintf("%d.%s", ts, sig)
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "ui_session",
+		Value:    val,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int((24 * time.Hour).Seconds()),
+	})
+}
+
+func (s *Server) uiVerifyCaptcha(token string, code string, input string) error {
+	parts := strings.SplitN(strings.TrimSpace(token), ".", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid token")
+	}
+
+	ts, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid ts")
+	}
+	if time.Since(time.Unix(ts, 0)) > 5*time.Minute {
+		return fmt.Errorf("expired")
+	}
+
+	code = strings.TrimSpace(code)
+	input = strings.TrimSpace(input)
+	if code == "" || input == "" {
+		return fmt.Errorf("empty")
+	}
+	if input != code {
+		return fmt.Errorf("mismatch")
+	}
+
+	expect := uiHMACHex(s.uiSecret(), fmt.Sprintf("%d.%s", ts, code))
+	if !secureEqualHex(parts[1], expect) {
+		return fmt.Errorf("bad sig")
+	}
+	return nil
+}
+
+func (s *Server) renderUILoginPage(w http.ResponseWriter, errMsg string) {
+	ts := time.Now().Unix()
+	code := uiRandDigits(4)
+	token := fmt.Sprintf("%d.%s", ts, uiHMACHex(s.uiSecret(), fmt.Sprintf("%d.%s", ts, code)))
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(s.uiLoginHTML(code, token, errMsg)))
+}
+
+func (s *Server) uiLoginHTML(code string, token string, errMsg string) string {
+	errMsg = strings.TrimSpace(errMsg)
+	if errMsg != "" {
+		errMsg = `<div class="err">` + htmlEscape(errMsg) + `</div>`
+	}
+
+	return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; padding: 24px; background: #0b1020; color: #e7eaf0; }
+      .wrap { max-width: 520px; margin: 0 auto; }
+      h1 { margin: 0 0 16px; font-size: 20px; }
+      .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 12px; padding: 16px; }
+      label { display: block; font-size: 12px; opacity: 0.9; margin-bottom: 6px; }
+      input { width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #e7eaf0; border-radius: 10px; padding: 10px 12px; outline: none; }
+      input:focus { border-color: rgba(99, 179, 237, 0.9); }
+      .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
+      button { cursor: pointer; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.10); color: #e7eaf0; padding: 10px 12px; border-radius: 10px; font-weight: 600; width: 100%; }
+      button:hover { background: rgba(255,255,255,0.14); }
+      .muted { opacity: 0.8; font-size: 12px; margin-top: 10px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .captcha { display: inline-block; padding: 6px 10px; border-radius: 10px; border: 1px dashed rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); }
+      .err { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(254, 202, 202, 0.25); background: rgba(254, 202, 202, 0.10); color: #fecaca; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>下单测试 — 登录</h1>
+      <div class="card">
+        ` + errMsg + `
+        <form method="POST" action="/ui/login">
+          <div class="row">
+            <div>
+              <label>账号</label>
+              <input name="username" autocomplete="username" />
+            </div>
+            <div>
+              <label>密码</label>
+              <input name="password" type="password" autocomplete="current-password" />
+            </div>
+            <div>
+              <label>验证码（输入下方数字）</label>
+              <div class="muted">验证码：<span class="captcha mono">` + htmlEscape(code) + `</span></div>
+              <input name="captcha" inputmode="numeric" />
+              <input type="hidden" name="captcha_code" value="` + htmlEscape(code) + `" />
+              <input type="hidden" name="captcha_token" value="` + htmlEscape(token) + `" />
+            </div>
+            <div>
+              <button type="submit">登录</button>
+            </div>
+          </div>
+        </form>
+        <div class="muted">登录成功后自动跳转到下单页面</div>
+      </div>
+    </div>
+  </body>
+</html>`
+}
+
+func uiHMACHex(secret []byte, data string) string {
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(data))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func uiRandDigits(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	b := make([]byte, n)
+	_, err := rand.Read(b)
+	if err != nil {
+		return strconv.FormatInt(time.Now().UnixNano()%int64Pow10(n), 10)
+	}
+	out := make([]byte, n)
+	for i := 0; i < n; i++ {
+		out[i] = byte('0' + (b[i] % 10))
+	}
+	return string(out)
+}
+
+func int64Pow10(n int) int64 {
+	x := int64(1)
+	for i := 0; i < n; i++ {
+		x *= 10
+	}
+	return x
+}
+
+func htmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, `"`, "&quot;")
+	s = strings.ReplaceAll(s, "'", "&#39;")
+	return s
 }
 
 const orderTestHTML = `<!doctype html>
