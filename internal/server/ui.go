@@ -47,7 +47,6 @@ func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := strings.TrimSpace(r.FormValue("password"))
 	captchaInput := strings.TrimSpace(r.FormValue("captcha"))
-	captchaCode := strings.TrimSpace(r.FormValue("captcha_code"))
 	captchaToken := strings.TrimSpace(r.FormValue("captcha_token"))
 
 	if username == "" || password == "" || captchaInput == "" {
@@ -55,7 +54,7 @@ func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.uiVerifyCaptcha(captchaToken, captchaCode, captchaInput); err != nil {
+	if err := s.uiVerifyCaptcha(captchaToken, captchaInput); err != nil {
 		s.renderUILoginPage(w, "验证码错误")
 		return
 	}
@@ -115,7 +114,7 @@ func (s *Server) uiSetSessionCookie(w http.ResponseWriter, username string) {
 	})
 }
 
-func (s *Server) uiVerifyCaptcha(token string, code string, input string) error {
+func (s *Server) uiVerifyCaptcha(token string, input string) error {
 	parts := strings.SplitN(strings.TrimSpace(token), ".", 2)
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid token")
@@ -129,16 +128,12 @@ func (s *Server) uiVerifyCaptcha(token string, code string, input string) error 
 		return fmt.Errorf("expired")
 	}
 
-	code = strings.TrimSpace(code)
 	input = strings.TrimSpace(input)
-	if code == "" || input == "" {
+	if input == "" {
 		return fmt.Errorf("empty")
 	}
-	if input != code {
-		return fmt.Errorf("mismatch")
-	}
 
-	expect := uiHMACHex(s.uiSecret(), fmt.Sprintf("%d.%s", ts, code))
+	expect := uiHMACHex(s.uiSecret(), fmt.Sprintf("%d.%s", ts, input))
 	if !secureEqualHex(parts[1], expect) {
 		return fmt.Errorf("bad sig")
 	}
@@ -179,7 +174,8 @@ func (s *Server) uiLoginHTML(code string, token string, errMsg string) string {
       button:hover { background: rgba(255,255,255,0.14); }
       .muted { opacity: 0.8; font-size: 12px; margin-top: 10px; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-      .captcha { display: inline-block; padding: 6px 10px; border-radius: 10px; border: 1px dashed rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); }
+      .captcha { display: inline-flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.16); background: linear-gradient(135deg, rgba(99,179,237,0.20), rgba(167,243,208,0.14)); box-shadow: 0 10px 24px rgba(0,0,0,0.35); }
+      .captcha-digit { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 42px; border-radius: 10px; background: rgba(11,16,32,0.55); border: 1px solid rgba(255,255,255,0.20); font-size: 22px; font-weight: 800; letter-spacing: 1px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25); }
       .err { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(254, 202, 202, 0.25); background: rgba(254, 202, 202, 0.10); color: #fecaca; font-size: 12px; }
     </style>
   </head>
@@ -200,9 +196,8 @@ func (s *Server) uiLoginHTML(code string, token string, errMsg string) string {
             </div>
             <div>
               <label>验证码（输入下方数字）</label>
-              <div class="muted">验证码：<span class="captcha mono">` + htmlEscape(code) + `</span></div>
+              <div class="muted">验证码：` + s.uiCaptchaHTML(code) + `</div>
               <input name="captcha" inputmode="numeric" />
-              <input type="hidden" name="captcha_code" value="` + htmlEscape(code) + `" />
               <input type="hidden" name="captcha_token" value="` + htmlEscape(token) + `" />
             </div>
             <div>
@@ -215,6 +210,30 @@ func (s *Server) uiLoginHTML(code string, token string, errMsg string) string {
     </div>
   </body>
 </html>`
+}
+
+func (s *Server) uiCaptchaHTML(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return ""
+	}
+
+	rots := make([]byte, len(code))
+	_, _ = rand.Read(rots)
+
+	var b strings.Builder
+	b.WriteString(`<span class="captcha mono">`)
+	for i := 0; i < len(code); i++ {
+		d := code[i]
+		deg := int(int8(rots[i]%11)) - 5
+		b.WriteString(`<span class="captcha-digit" style="transform: rotate(`)
+		b.WriteString(strconv.Itoa(deg))
+		b.WriteString(`deg)">`)
+		b.WriteByte(d)
+		b.WriteString(`</span>`)
+	}
+	b.WriteString(`</span>`)
+	return b.String()
 }
 
 func uiHMACHex(secret []byte, data string) string {

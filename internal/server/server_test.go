@@ -336,8 +336,8 @@ func TestUILoginPage(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "下单测试 — 登录") {
 		t.Fatalf("unexpected body")
 	}
-	if !strings.Contains(rr.Body.String(), "captcha_code") {
-		t.Fatalf("captcha field missing")
+	if !strings.Contains(rr.Body.String(), "captcha_token") {
+		t.Fatalf("captcha token missing")
 	}
 }
 
@@ -352,8 +352,8 @@ func TestUILoginSubmitOK(t *testing.T) {
 	}
 
 	html := rrLogin.Body.String()
-	code := extractInputValue(html, `name="captcha_code" value="`)
 	token := extractInputValue(html, `name="captcha_token" value="`)
+	code := extractCaptchaCode(html)
 	if code == "" || token == "" {
 		t.Fatalf("failed to extract captcha")
 	}
@@ -362,7 +362,6 @@ func TestUILoginSubmitOK(t *testing.T) {
 	form.Set("username", "u")
 	form.Set("password", "p")
 	form.Set("captcha", code)
-	form.Set("captcha_code", code)
 	form.Set("captcha_token", token)
 
 	rr := httptest.NewRecorder()
@@ -411,6 +410,31 @@ func extractInputValue(html string, prefix string) string {
 		return ""
 	}
 	return v
+}
+
+func extractCaptchaCode(html string) string {
+	var b strings.Builder
+	remain := html
+	for {
+		i := strings.Index(remain, `class="captcha-digit"`)
+		if i < 0 {
+			break
+		}
+		remain = remain[i:]
+		j := strings.Index(remain, ">")
+		if j < 0 {
+			break
+		}
+		remain = remain[j+1:]
+		if len(remain) == 0 {
+			break
+		}
+		ch := remain[0]
+		if ch >= '0' && ch <= '9' {
+			b.WriteByte(ch)
+		}
+	}
+	return b.String()
 }
 
 func logHTTPResponse(t *testing.T, rr *httptest.ResponseRecorder) {
